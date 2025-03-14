@@ -10,127 +10,7 @@ const Roles = require('../db/models/Roles');
 const config = require('../config');
 const jwt = require("jwt-simple");
 var router = express.Router();
-
-router.get('/', async (req, res) => {
-  try {
-    let users = await Users.find({});
-    res.json(Response.successResponse(users));
-  }
-  catch (err) {
-    let errorResponse = Response.errorResponse(err);
-    res.status(errorResponse.code).json(errorResponse);
-  }
-});
-
-router.post('/add', async (req, res) => {
-  let body = req.body;
-  try {
-    if (!body.email) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Email kısmı dolu olmalı")
-    if (is.not.email(body.email)) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Email Geçerli Bir Email olmalı");
-
-    if (!body.password) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Şifre kısmı dolu olmalı")
-    if (body.password.length < Enum.PASS_LENGTH) {
-      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Şifreniz Bu Karakter Sayısından Uzun Olmalı:" + Enum.PASS_LENGTH);
-    }
-
-    if (!body.roles || !Array.isArray(body.roles) || body.roles.length == 0) {
-      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Role Kısmı Dolu olmalı");
-    }
-    let roles = await Roles.find({ _id: { $in: body.roles } });
-
-    if (roles.length == 0) {
-      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Role Kısmı Dolu olmalı");
-    }
-
-    let password = bcrypt.hashSync(body.password, bcrypt.genSaltSync(8), null);
-
-    let user = await Users.create({
-      email: body.email,
-      password,
-      is_active: true,
-      first_name: body.first_name,
-      last_name: body.last_name,
-      phone_number: body.phone_number
-    });
-
-    for (let i = 0; i < (await roles).length; i++) {
-      await UserRoles.create({
-        role_id: roles[i]._id,
-        user_id: user._id
-      })
-    }
-
-    res.status(Enum.HTTP_CODES.CREATED).json(Response.successResponse({ success: true }, Enum.HTTP_CODES.CREATED));
-
-
-  }
-  catch (err) {
-    let errorResponse = Response.errorResponse(err);
-    res.status(errorResponse.code).json(errorResponse);
-  }
-})
-
-router.post('/update', async (req, res) => {
-  let body = req.body;
-  let updates = {};
-  try {
-    if (!body._id) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error", "_id kısmı dolu olmalı");
-    if (body.password && body.password.length < Enum.PASS_LENGTH) {
-      updates.password = bcrypt.hashSync(body.password, bcrypt.genSaltSync(8), null);
-    }
-    if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
-    if (body.first_name) updates.first_name = body.first_name;
-    if (body.last_name) updates.last_name = body.last_name;
-    if (body.phone_number) updates.phone_number = body.phone_number;
-
-    if (Array.isArray(body.roles) && body.roles.length > 0) {
-
-      let userRoles = await UserRoles.find({ user_id: body._id });
-
-      let removedRoles = userRoles.filter(x => !body.roles.includes(x.role_id));
-      let newRoles = body.roles.filter(x => !userRoles.map(r => r.role_id).includes(x));
-
-      if (removedRoles.length > 0) {
-        await UserRoles.deleteMany({ _id: { $in: removedRoles.map(x => x._id.toString()) } });
-      }
-
-      if (newRoles.length > 0) {
-        for (let i = 0; i < newRoles.length; i++) {
-          let userRole = new UserRoles({
-            role_id: newRoles[i],
-            user_id: body._id,
-          });
-          await userRole.save();
-        }
-      }
-
-
-    }
-
-    await Users.updateOne({ _id: body._id }, updates);
-    res.json(Response.successResponse({ success: true }));
-  }
-  catch (err) {
-    let errorResponse = Response.errorResponse(err);
-    res.status(errorResponse.code).json(errorResponse);
-  }
-})
-
-router.post('/delete', async (req, res) => {
-  try {
-    let body = req.body;
-    if (!body._id) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error", "_id kısmı dolu olmalı");
-    await Users.deleteOne({ _id: body._id });
-
-    await UserRoles.deleteMany({ user_id: body._id });
-
-    res.json(Response.successResponse({ success: true }));
-  }
-  catch (err) {
-    let errorResponse = Response.errorResponse(err);
-    res.status(errorResponse.code).json(errorResponse);
-  }
-})
+const auth = require("../lib/auth")();
 
 router.post('/register', async (req, res) => {
   let body = req.body;
@@ -208,5 +88,133 @@ router.post("/auth", async (req, res) => {
   }
 
 })
+
+
+router.all("*", auth.authenticate(), (req, res, next) => {
+  next();
+});
+
+router.get('/', auth.checkRoles("user_view"), async (req, res) => {
+  try {
+    let users = await Users.find({});
+    res.json(Response.successResponse(users));
+  }
+  catch (err) {
+    let errorResponse = Response.errorResponse(err);
+    res.status(errorResponse.code).json(errorResponse);
+  }
+});
+
+router.post('/add', auth.checkRoles("user_add"), async (req, res) => {
+  let body = req.body;
+  try {
+    if (!body.email) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Email kısmı dolu olmalı")
+    if (is.not.email(body.email)) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Email Geçerli Bir Email olmalı");
+
+    if (!body.password) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Şifre kısmı dolu olmalı")
+    if (body.password.length < Enum.PASS_LENGTH) {
+      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Şifreniz Bu Karakter Sayısından Uzun Olmalı:" + Enum.PASS_LENGTH);
+    }
+
+    if (!body.roles || !Array.isArray(body.roles) || body.roles.length == 0) {
+      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Role Kısmı Dolu olmalı");
+    }
+    let roles = await Roles.find({ _id: { $in: body.roles } });
+
+    if (roles.length == 0) {
+      throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error!", "Role Kısmı Dolu olmalı");
+    }
+
+    let password = bcrypt.hashSync(body.password, bcrypt.genSaltSync(8), null);
+
+    let user = await Users.create({
+      email: body.email,
+      password,
+      is_active: true,
+      first_name: body.first_name,
+      last_name: body.last_name,
+      phone_number: body.phone_number
+    });
+
+    for (let i = 0; i < (await roles).length; i++) {
+      await UserRoles.create({
+        role_id: roles[i]._id,
+        user_id: user._id
+      })
+    }
+
+    res.status(Enum.HTTP_CODES.CREATED).json(Response.successResponse({ success: true }, Enum.HTTP_CODES.CREATED));
+
+
+  }
+  catch (err) {
+    let errorResponse = Response.errorResponse(err);
+    res.status(errorResponse.code).json(errorResponse);
+  }
+})
+
+router.post('/update', auth.checkRoles("user_update"), async (req, res) => {
+  let body = req.body;
+  let updates = {};
+  try {
+    if (!body._id) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error", "_id kısmı dolu olmalı");
+    if (body.password && body.password.length < Enum.PASS_LENGTH) {
+      updates.password = bcrypt.hashSync(body.password, bcrypt.genSaltSync(8), null);
+    }
+    if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
+    if (body.first_name) updates.first_name = body.first_name;
+    if (body.last_name) updates.last_name = body.last_name;
+    if (body.phone_number) updates.phone_number = body.phone_number;
+
+    if (Array.isArray(body.roles) && body.roles.length > 0) {
+
+      let userRoles = await UserRoles.find({ user_id: body._id });
+
+      let removedRoles = userRoles.filter(x => !body.roles.includes(x.role_id));
+      let newRoles = body.roles.filter(x => !userRoles.map(r => r.role_id).includes(x));
+
+      if (removedRoles.length > 0) {
+        await UserRoles.deleteMany({ _id: { $in: removedRoles.map(x => x._id.toString()) } });
+      }
+
+      if (newRoles.length > 0) {
+        for (let i = 0; i < newRoles.length; i++) {
+          let userRole = new UserRoles({
+            role_id: newRoles[i],
+            user_id: body._id,
+          });
+          await userRole.save();
+        }
+      }
+
+
+    }
+
+    await Users.updateOne({ _id: body._id }, updates);
+    res.json(Response.successResponse({ success: true }));
+  }
+  catch (err) {
+    let errorResponse = Response.errorResponse(err);
+    res.status(errorResponse.code).json(errorResponse);
+  }
+})
+
+router.post('/delete', auth.checkRoles("user_delete"), async (req, res) => {
+  try {
+    let body = req.body;
+    if (!body._id) throw new CustomError(Enum.HTTP_CODES.BAD_REQUEST, "Validation Error", "_id kısmı dolu olmalı");
+    await Users.deleteOne({ _id: body._id });
+
+    await UserRoles.deleteMany({ user_id: body._id });
+
+    res.json(Response.successResponse({ success: true }));
+  }
+  catch (err) {
+    let errorResponse = Response.errorResponse(err);
+    res.status(errorResponse.code).json(errorResponse);
+  }
+})
+
+
 
 module.exports = router;

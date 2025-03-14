@@ -3,8 +3,13 @@ const moment = require("moment");
 const router = express.Router();
 const Response = require("../lib/Response");
 const AuditLogs = require("../db/models/AuditLogs");
+const auth = require("../lib/auth")();
 
-router.post("/", async (req, res) => {
+router.all("*", auth.authenticate(), (req, res, next) => {
+    next();
+});
+
+router.post("/", auth.checkRoles("auditlogs_view"), async (req, res) => {
     try {
         let body = req.body;
         let query = {};
@@ -34,7 +39,7 @@ router.post("/", async (req, res) => {
         res.json(Response.successResponse(auditLogs));
     }
     catch (err) {
-        let errorRespone = Response.errorRespone(err);
+        let errorRespone = Response.errorResponse(err);
         res.status(errorRespone.code).json(errorRespone);
     }
 })
