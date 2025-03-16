@@ -1,5 +1,8 @@
 const Enum = require("../config/Enum");
 const CustomError = require("../lib/Error");
+const config = require("../config");
+
+const i18n = new (require("./i18n"))(config.DEFAULT_LANG);
 class Response {
     constructor() { }
     static successResponse(data, code = 200) {
@@ -8,7 +11,7 @@ class Response {
             data
         }
     }
-    static errorResponse(error) {
+    static errorResponse(error, lang) {
         if (error instanceof CustomError) {
             return {
                 code: error.code,
@@ -22,8 +25,8 @@ class Response {
             return {
                 code: Enum.HTTP_CODES.CONFLICT,
                 error: {
-                    message: "Veritabanında Bulunuyor ???",
-                    description: "Veritabanında Bulunuyor ???"
+                    message: i18n.translate("COMMON.ALREADY_EXISTS", lang),
+                    description: i18n.translate("COMMON.ALREADY_EXISTS", lang)
                 }
             }
         }
@@ -31,7 +34,7 @@ class Response {
         return {
             code: Enum.HTTP_CODES.INT_SERVER_ERROR,
             error: {
-                message: "Unknown ???",
+                message: i18n.translate("COMMON.UNKNOWN_ERROR", lang),
                 description: error.message
             }
         }
